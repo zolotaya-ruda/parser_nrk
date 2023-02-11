@@ -42,7 +42,7 @@ class Parser(HTMLParser):
 
         self.is_found_title = False
         self.is_found_sales_count = False
-
+        self.flag = False
         self.is_find_ref = False
 
         super(Parser, self).__init__()
@@ -52,6 +52,7 @@ class Parser(HTMLParser):
         if tag == 'a':
             if 'href' in attrs:
                 if attrs['href'].startswith('/itm/last-sale'):
+                    self.flag = True
                     product_id = attrs['href'].split('/')[-1]
 
                     r = requests.post('https://plati.io/xml/goods_info.asp',
@@ -159,11 +160,15 @@ while True:
         _session.headers = headers
         _session.get('https://plati.market')
         data = _session.get(ref, cookies=cooks)
-        Parser(False, _session).feed(data.text)
+        parser = Parser(False, _session)
+        parser.feed(data.text)
+        if not parser.flag:
+            requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendMessage',
+                          data={"chat_id": -1001880738236, 'text': 'error: nothing parsed'})
 
     print('[END]')
 
-    if datetime.datetime.now() - start_time_day >= datetime.timedelta(minutes=5):
+    if datetime.datetime.now() - start_time_day >= datetime.timedelta(hours=1):
         make_excel()
         start_time_day = datetime.datetime.now()
 
