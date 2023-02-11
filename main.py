@@ -5,8 +5,13 @@ from html.parser import HTMLParser
 import requests
 from sql_module.models import Day, Week, Month, session
 import pandas as pd
-
+import xmltodict
 import config
+from fake_useragent import UserAgent
+
+ua = UserAgent()
+
+
 
 MAIN_URL = 'https://plati.market'
 
@@ -30,8 +35,9 @@ headers = {
 
 
 class Parser(HTMLParser):
-    def __init__(self, is_parse_product_page):
+    def __init__(self, is_parse_product_page, session=None):
         self.is_parse_product_page = is_parse_product_page
+        self.session = session
 
         self.title = None
         self.sales_count = None
@@ -39,69 +45,70 @@ class Parser(HTMLParser):
         self.is_found_title = False
         self.is_found_sales_count = False
 
+        self.is_find_ref = False
+
         super(Parser, self).__init__()
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag, attrs) -> None:
         attrs = dict(attrs)
+        if tag == 'a':
+            if 'href' in attrs:
+                if attrs['href'].startswith('/itm/last-sale'):
+                    product_id = attrs['href'].split('/')[-1]
 
-        if not self.is_parse_product_page:
-            if tag == 'a':
-                if 'href' in attrs:
-                    if attrs['href'].startswith('/itm/last-sale'):
-                        product_parser = Parser(True)
+                    r = requests.post('https://plati.io/xml/goods_info.asp',
+                                      data=f'''
+                    <?xml version='1.0' encoding='utf-8'?>
+                    <digiseller.request>
+                      <id_good>{product_id}</id_good>
+                      <guid_agent>10C2691408D14B458E348F2A52F2BF45</guid_agent>
+                      <lang>ru-RU</lang>
 
-                        d = requests.get(MAIN_URL + attrs['href'], headers=headers, cookies=cooks)
-                        product_parser.feed(requests.get(MAIN_URL + attrs['href'], headers=headers).text)
+                    </digiseller.request>     
+                    ''', headers={'Content-Type': 'application/xml'}).text
 
-                        price = int(requests.get(
-                            f'https://plati.market/asp/price_options.asp?p={attrs["href"].split("/")[-1]}&n=0&c=RUB&e=&d=true&x=<response></response>&rnd=0.5937313590599644').json()[
-                                        'amount'])
+                    xml_data = xmltodict.parse(r)
 
-                        if Day.is_exists(product_parser.title):
-                            try:
+                    sales_count = int(xml_data['digiseller.response']['statistics']['cnt_sell'])
+                    title = xml_data['digiseller.response']['name_goods']
 
-                                Day.get_by_title(product_parser.title).change(price, int(product_parser.sales_count))
-                                Week.get_by_title(product_parser.title).change(price, int(product_parser.sales_count))
-                                Month.get_by_title(product_parser.title).change(price, int(product_parser.sales_count))
+                    price_data = requests.get(
+                        f'https://api.digiseller.ru/api/products/{product_id}/data',
+                        headers={'Accept': 'application/json'}).json()
 
-                            except:
-                                print('passed')
+                    try:
+                        price = int(price_data['product']['prices']['initial']['RUB'])
+                    except:
+                        return
 
-                        else:
-                            Day(title=product_parser.title, price=price, sales_count=0,
-                                last_sales_count=int(product_parser.sales_count)).create()
+                    if Day.is_exists(title):
+                        try:
 
-                            Week(title=product_parser.title, price=price, sales_count=0,
-                                 last_sales_count=int(product_parser.sales_count)).create()
+                            Day.get_by_title(title).change(price, int(sales_count))
+                            Week.get_by_title(title).change(price, int(sales_count))
+                            Month.get_by_title(title).change(price, int(sales_count))
 
-                            Month(title=product_parser.title, price=price, sales_count=0,
-                                  last_sales_count=int(product_parser.sales_count)).create()
+                        except Exception as e:
+                            raise e
 
-        if self.is_parse_product_page:
-            if tag == 'h1':
-                if 'itemprop' in attrs:
-                    if attrs['itemprop'] == 'name':
-                        self.is_found_title = True
+                    else:
+                        Day(title=title, price=price, sales_count=0,
+                            last_sales_count=int(sales_count)).create()
 
-            elif tag == 'div':
-                if 'class' in attrs:
-                    if attrs['class'] == 'goods-sell-count':
-                        self.is_found_sales_count = True
+                        Week(title=title, price=price, sales_count=0,
+                             last_sales_count=int(sales_count)).create()
 
-    def handle_data(self, _data):
-        if self.is_found_title:
-            self.title = _data
-            self.is_found_title = False
-
-        if 'Продаж' in _data.strip():
-            self.sales_count = _data.strip().split(':')[-1]
+                        Month(title=title, price=price, sales_count=0,
+                              last_sales_count=int(sales_count)).create()
 
 
-start_time = datetime.datetime.now()
+start_time_day = datetime.datetime.now()
+start_time_week = datetime.datetime.now()
+start_time_month = datetime.datetime.now()
 
 
 def make_excel():
-    excel_data = {'Название': ['за час'],
+    excel_data = {'Название': ['за 10'],
                   'Цена': [''],
                   'Количество продаж': ['']
                   }
@@ -111,7 +118,7 @@ def make_excel():
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
 
-    excel_data['Название'].append('за 2 часа')
+    excel_data['Название'].append('за 20')
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
@@ -119,7 +126,8 @@ def make_excel():
         excel_data['Название'].append(product[0])
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
-    excel_data['Название'].append('за 3 часа')
+
+    excel_data['Название'].append('за 30')
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
@@ -128,38 +136,47 @@ def make_excel():
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
 
+    print(excel_data)
+
     df = pd.DataFrame(excel_data)
     df.to_excel('table.xlsx')
 
     with open("table.xlsx", "rb") as filexlsx:
         files = {"document": filexlsx}
         chat_id = "1460245641"
-        r = requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendDocument',
-                          data={"chat_id": chat_id}, files=files)
+        requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendDocument',
+                      data={"chat_id": chat_id}, files=files)
 
 
 while True:
     print('[START]')
+
     for ref in config.hrefs:
-        data = requests.get(ref, headers=headers, allow_redirects=True)
-        print(f'[SUCCESS PARSED] {ref}')
-        parser = Parser(False)
-        parser.feed(data.text)
+        headers['User-Agent'] = ua.random
+
+        _session = requests.session()
+        _session.headers = headers
+        _session.get('https://plati.market')
+        data = _session.get(ref, cookies=cooks)
+        parser = Parser(False, _session).feed(data.text)
+
     print('[END]')
 
-    if datetime.datetime.now() - start_time >= datetime.timedelta(hours=3):
+    if datetime.datetime.now() - start_time_day >= datetime.timedelta(minutes=10):
+        print(1)
         make_excel()
-        session.query(Month).delete()
+        session.query(Day).delete()
         session.commit()
+        start_time_day = datetime.datetime.now()
 
-    elif datetime.datetime.now() - start_time >= datetime.timedelta(hours=2):
-        make_excel()
-        session.query(Month).delete()
+    if datetime.datetime.now() - start_time_week >= datetime.timedelta(minutes=20):
+        session.query(Week).delete()
         session.commit()
+        start_time_week = datetime.datetime.now()
 
-    elif datetime.datetime.now() - start_time >= datetime.timedelta(hours=1):
-        make_excel()
+    if datetime.datetime.now() - start_time_month >= datetime.timedelta(minutes=30):
         session.query(Month).delete()
         session.commit()
+        start_time_month = datetime.datetime.now()
 
     time.sleep(60)

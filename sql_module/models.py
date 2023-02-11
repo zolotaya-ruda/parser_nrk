@@ -28,6 +28,7 @@ class Day(base):
         self.last_sales_count = sales_count
         self.price = price
         self.create()
+        session.commit()
 
     @staticmethod
     def is_exists(title):
@@ -35,7 +36,9 @@ class Day(base):
 
     @staticmethod
     def get_by_date():
-        return [[product.title, product.price, product.sales_count] for product in session.query(Day).filter((datetime.datetime.now() - Day.time) > datetime.timedelta(hours=1)).all()]
+        return [[product.title, product.price, product.sales_count] for product in session.query(Week).all() if
+                datetime.datetime.now() - product.time > datetime.timedelta(
+                    minutes=10)]
 
 
 class Week(base):
@@ -60,11 +63,14 @@ class Week(base):
         self.sales_count += sales_count - self.last_sales_count
         self.last_sales_count = sales_count
         self.price = price
-        self.create()
+        session.commit()
 
     @staticmethod
     def get_by_date():
-        return [[product.title, product.price, product.sales_count] for product in session.query(Week).filter((datetime.datetime.now() - Day.time) > datetime.timedelta(hours=2)).all()]
+        return [[product.title, product.price, product.sales_count] for product in session.query(Week).all() if
+                datetime.datetime.now() - product.time < datetime.timedelta(
+                    minutes=20)]
+
 
 class Month(base):
     __tablename__ = 'month'
@@ -89,9 +95,12 @@ class Month(base):
         self.last_sales_count = sales_count
         self.price = price
         self.create()
+        session.commit()
 
     @staticmethod
     def get_by_date():
-        return [[product.title, product.price, product.sales_count] for product in session.query(Month).filter((datetime.datetime.now() - Day.time) > datetime.timedelta(hours=1)).all()]
+        return [[product.title, product.price, product.sales_count] for product in session.query(Week).all() if
+                datetime.datetime.now() - product.time < datetime.timedelta(
+                    minutes=30)]
 
 # base.metadata.create_all(engine)
