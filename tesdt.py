@@ -1,41 +1,74 @@
-import requests
-from html.parser import HTMLParser
-import json
+import requests, os, sys, tempfile, subprocess, base64, time
 
-class Parser(HTMLParser):
-    def handle_starttag(self, tag, attrs) -> None:
-        attrs = dict(attrs)
-        if tag == 'a':
-            if 'href' in attrs:
-                if attrs['href'].startswith('/itm/last-sale'):
-                    print(attrs)
+__author__ = "Andrea Lazzarotto"
+__copyright__ = "Copyright 2014+, Andrea Lazzarotto"
+__license__ = "GPLv3"
+__version__ = "1.0"
+__maintainer__ = "Andrea Lazzarotto"
+__email__ = "andrea.lazzarotto@gmail.com"
 
 
-cooks = {}
+if len(sys.argv) != 2:
+    print 'usage: ' + sys.argv[0] + ' [country name | country code]'
+    exit(1)
+country = sys.argv[1]
 
-with open('cookies.json', 'r') as f:
-    for cook in json.loads(f.read()):
-        cooks[cook['name']] = cook['value']
+if len(country) == 2:
+    i = 6 # short name for country
+elif len(country) > 2:
+    i = 5 # long name for country
+else:
+    print 'Country is too short!'
+    exit(1)
 
-headers = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Connection': 'keep-alive',
-    'Host': 'plati.market',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.61 Safari/537.36', }
+try:
+    vpn_data = requests.get('http://www.vpngate.net/api/iphone/').text.replace('\r','')
+    servers = [line.split(',') for line in vpn_data.split('\n')]
+    labels = servers[1]
+    labels[0] = labels[0][1:]
+    servers = [s for s in servers[2:] if len(s) > 1]
+except:
+    print 'Cannot get VPN servers data'
+    exit(1)
 
-session = requests.session()
-session.headers = headers
-session.get('https://plati.market')
+desired = [s for s in servers if country.lower() in s[i].lower()]
+found = len(desired)
+print 'Found ' + str(found) + ' servers for country ' + country
+if found == 0:
+    exit(1)
 
-data = session.get('https://plati.market/seller/mmopix/987024/', cookies=cooks)
+supported = [s for s in desired if len(s[-1]) > 0]
+print str(len(supported)) + ' of these servers support OpenVPN'
+# We pick the best servers by score
+winner = sorted(supported, key=lambda s: float(s[2].replace(',','.')), reverse=True)[0]
 
-with open('test.html', 'wb') as f:
-    f.write(data.content)
+print "\n== Best server =="
+pairs = zip(labels, winner)[:-1]
+for (l, d) in pairs[:4]:
+    print l + ': ' + d
 
-Parser().feed(data.text)
+print pairs[4][0] + ': ' + str(float(pairs[4][1]) / 10**6) + ' MBps'
+print "Country: " + pairs[5][1]
+
+print "\nLaunching VPN..."
+_, path = tempfile.mkstemp()
+
+f = open(path, 'w')
+f.write(base64.b64decode(winner[-1]))
+f.write('\nscript-security 2\nup /etc/openvpn/update-resolv-conf\ndown /etc/openvpn/update-resolv-conf')
+f.close()
+
+x = subprocess.Popen(['sudo', 'openvpn', '--config', path])
+
+try:
+    while True:
+        time.sleep(600)
+# termination with Ctrl+C
+except:
+    try:
+        x.kill()
+    except:
+        pass
+    while x.poll() != 0:
+        time.sleep(1)
+    print '\nVPN terminated'

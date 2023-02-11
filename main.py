@@ -11,8 +11,6 @@ from fake_useragent import UserAgent
 
 ua = UserAgent()
 
-
-
 MAIN_URL = 'https://plati.market'
 
 cooks = {}
@@ -81,62 +79,65 @@ class Parser(HTMLParser):
                     except:
                         return
 
+                    time_now = datetime.datetime.now()
+
                     if Day.is_exists(title):
-                        try:
+                        table = Day.get_by_title(title)
 
-                            Day.get_by_title(title).change(price, int(sales_count))
-                            Week.get_by_title(title).change(price, int(sales_count))
-                            Month.get_by_title(title).change(price, int(sales_count))
+                        if table.last_sales_count != sales_count:
+                            try:
 
-                        except Exception as e:
-                            raise e
+                                Day.get_by_title(title).change(price, int(sales_count), time_now)
+                            except Exception as e:
+                                print(e)
 
                     else:
                         Day(title=title, price=price, sales_count=0,
-                            last_sales_count=int(sales_count)).create()
-
-                        Week(title=title, price=price, sales_count=0,
-                             last_sales_count=int(sales_count)).create()
-
-                        Month(title=title, price=price, sales_count=0,
-                              last_sales_count=int(sales_count)).create()
+                            last_sales_count=int(sales_count), time=datetime.datetime.now()).create()
 
 
-start_time_day = datetime.datetime.now()
-start_time_week = datetime.datetime.now()
-start_time_month = datetime.datetime.now()
+start_time = datetime.datetime.now()
+
+start_time_day = start_time
 
 
 def make_excel():
+    print('send')
     excel_data = {'Название': ['за 10'],
                   'Цена': [''],
                   'Количество продаж': ['']
                   }
 
-    for product in Day.get_by_date():
+    for product in Day.get_by_day():
         excel_data['Название'].append(product[0])
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
+
+    excel_data['Название'].append('')
+    excel_data['Цена'].append('')
+    excel_data['Количество продаж'].append('')
 
     excel_data['Название'].append('за 20')
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
-    for product in Week.get_by_date():
+    for product in Day.get_by_week():
         excel_data['Название'].append(product[0])
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
+
+    excel_data['Название'].append('')
+    excel_data['Цена'].append('')
+    excel_data['Количество продаж'].append('')
 
     excel_data['Название'].append('за 30')
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
-    for product in Month.get_by_date():
+    for product in Day.get_by_month():
         excel_data['Название'].append(product[0])
         excel_data['Цена'].append(product[1])
         excel_data['Количество продаж'].append(product[2])
-
-    print(excel_data)
 
     df = pd.DataFrame(excel_data)
     df.to_excel('table.xlsx')
@@ -145,7 +146,7 @@ def make_excel():
         files = {"document": filexlsx}
         chat_id = "1460245641"
         requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendDocument',
-                      data={"chat_id": chat_id}, files=files)
+                      data={"chat_id": -1001880738236}, files=files)
 
 
 while True:
@@ -158,25 +159,12 @@ while True:
         _session.headers = headers
         _session.get('https://plati.market')
         data = _session.get(ref, cookies=cooks)
-        parser = Parser(False, _session).feed(data.text)
+        Parser(False, _session).feed(data.text)
 
     print('[END]')
 
-    if datetime.datetime.now() - start_time_day >= datetime.timedelta(minutes=10):
-        print(1)
+    if datetime.datetime.now() - start_time_day >= datetime.timedelta(minutes=5):
         make_excel()
-        session.query(Day).delete()
-        session.commit()
         start_time_day = datetime.datetime.now()
 
-    if datetime.datetime.now() - start_time_week >= datetime.timedelta(minutes=20):
-        session.query(Week).delete()
-        session.commit()
-        start_time_week = datetime.datetime.now()
-
-    if datetime.datetime.now() - start_time_month >= datetime.timedelta(minutes=30):
-        session.query(Month).delete()
-        session.commit()
-        start_time_month = datetime.datetime.now()
-
-    time.sleep(60)
+    time.sleep(300)
