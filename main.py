@@ -3,7 +3,7 @@ import json
 import time
 from html.parser import HTMLParser
 import requests
-from sql_module.models import Day, Week, Month, session
+from sql_module.models import Sale, session
 import pandas as pd
 import xmltodict
 import config
@@ -80,21 +80,15 @@ class Parser(HTMLParser):
                     except:
                         return
 
-                    time_now = datetime.datetime.now()
+                    print(title, price, sales_count)
 
-                    if Day.is_exists(title):
-                        table = Day.get_by_title(title)
-
-                        if table.last_sales_count != sales_count:
-                            try:
-
-                                Day.get_by_title(title).change(price, int(sales_count), time_now)
-                            except Exception as e:
-                                print(e)
+                    if Sale.is_exists(title):
+                        last_sale = Sale.get_last(title)
+                        if last_sale.last_sales_count != sales_count:
+                            last_sale.change(sales_count, title, price)
 
                     else:
-                        Day(title=title, price=price, sales_count=0,
-                            last_sales_count=int(sales_count), time=datetime.datetime.now()).create()
+                        Sale(title=title, price=price, last_sales_count=sales_count, time=datetime.datetime.now()).create()
 
 
 start_time = datetime.datetime.now()
@@ -109,10 +103,12 @@ def make_excel():
                   'Количество продаж': ['']
                   }
 
-    for product in Day.get_by_day():
-        excel_data['Название'].append(product[0])
-        excel_data['Цена'].append(product[1])
-        excel_data['Количество продаж'].append(product[2])
+    sales_by_day = dict(sorted(Sale.get_by_day().items(), key=lambda item: len(item[1]), reverse=True))
+    for product in sales_by_day:
+        _product = sales_by_day[product][0]
+        excel_data['Название'].append(_product.title)
+        excel_data['Цена'].append(_product.price)
+        excel_data['Количество продаж'].append(str(len(sales_by_day[product]) - 1))
 
     excel_data['Название'].append('')
     excel_data['Цена'].append('')
@@ -122,10 +118,12 @@ def make_excel():
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
-    for product in Day.get_by_week():
-        excel_data['Название'].append(product[0])
-        excel_data['Цена'].append(product[1])
-        excel_data['Количество продаж'].append(product[2])
+    sales_by_week = dict(sorted(Sale.get_by_week().items(), key=lambda item: len(item[1]), reverse=True))
+    for product in sales_by_week:
+        _product = sales_by_week[product][0]
+        excel_data['Название'].append(_product.title)
+        excel_data['Цена'].append(_product.price)
+        excel_data['Количество продаж'].append(str(len(sales_by_week[product]) - 1))
 
     excel_data['Название'].append('')
     excel_data['Цена'].append('')
@@ -135,10 +133,12 @@ def make_excel():
     excel_data['Цена'].append('')
     excel_data['Количество продаж'].append('')
 
-    for product in Day.get_by_month():
-        excel_data['Название'].append(product[0])
-        excel_data['Цена'].append(product[1])
-        excel_data['Количество продаж'].append(product[2])
+    sales_by_month = dict(sorted(Sale.get_by_month().items(), key=lambda item: len(item[1]), reverse=True))
+    for product in sales_by_month:
+        _product = sales_by_month[product][0]
+        excel_data['Название'].append(_product.title)
+        excel_data['Цена'].append(_product.price)
+        excel_data['Количество продаж'].append(str(len(sales_by_month[product]) - 1))
 
     df = pd.DataFrame(excel_data)
     df.to_excel('table.xlsx')
@@ -147,12 +147,13 @@ def make_excel():
         files = {"document": filexlsx}
         chat_id = "1460245641"
         requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendDocument',
-                      data={"chat_id": -1001880738236}, files=files)
+                      data={"chat_id": 1460245641}, files=files)
 
 
 while True:
     print('[START]')
 
+    c = 0
     for ref in config.hrefs:
         headers['User-Agent'] = ua.random
 
@@ -161,15 +162,18 @@ while True:
         _session.get('https://plati.market')
         data = _session.get(ref, cookies=cooks)
         parser = Parser(False, _session)
+        with open(f'{c}.html', 'wb') as f:
+            f.write(data.content)
         parser.feed(data.text)
         if not parser.flag:
             requests.post('https://api.telegram.org/bot5473936156:AAElTjeR8ydJrPK57_eOF1dDEs1I9aqiBbg/sendMessage',
-                          data={"chat_id": -1001880738236, 'text': 'error: nothing parsed'})
+                          data={"chat_id": 1460245641, 'text': 'error: nothing parsed'})
+        c += 1
 
     print('[END]')
 
-    if datetime.datetime.now() - start_time_day >= datetime.timedelta(hours=1):
+    if datetime.datetime.now() - start_time_day >= datetime.timedelta(minutes=5):
         make_excel()
         start_time_day = datetime.datetime.now()
 
-    time.sleep(300)
+    time.sleep(60)
